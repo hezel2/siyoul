@@ -1,0 +1,125 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user profile document containing non-PII display metadata.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the user."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Display name shown in the UI."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was last updated."
+        }
+      },
+      "required": ["uid", "displayName", "createdAt", "updatedAt"]
+    },
+    "SajuReading": {
+      "title": "SajuReading",
+      "description": "Saved personal Saju calculation and Gemini AI interpretation report.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Document ID of the reading."
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Owner Firebase Auth UID."
+        },
+        "nickname": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24,
+          "description": "Nickname or subject label for the reading."
+        },
+        "targetYear": {
+          "type": "integer",
+          "description": "Target year for the yearly fortune section."
+        },
+        "displayMeta": {
+          "type": "object",
+          "description": "Formatted display labels for calendar, time, and gender."
+        },
+        "calculation": {
+          "type": "object",
+          "description": "Deterministic Manseryeok four pillars and five elements breakdown."
+        },
+        "report": {
+          "type": "object",
+          "description": "Structured Gemini AI Saju interpretation sections."
+        },
+        "memo": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "description": "Optional user reflection note attached to the reading."
+        },
+        "isPinned": {
+          "type": "boolean",
+          "description": "Whether the reading is pinned to the top of the user archive."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when reading was saved."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when reading was last updated."
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "nickname",
+        "targetYear",
+        "displayMeta",
+        "calculation",
+        "report",
+        "memo",
+        "isPinned",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Stores authenticated user profile metadata scoped strictly to the owning user."
+    },
+    "/users/{userId}/readings/{readingId}": {
+      "schema": {
+        "$ref": "#/entities/SajuReading"
+      },
+      "description": "Stores saved Saju calculation and AI interpretation reports owned by a specific user."
+    }
+  }
+}

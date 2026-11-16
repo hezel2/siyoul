@@ -4,8 +4,16 @@ import { HeroView } from './components/HeroView';
 import { SajuInputForm } from './components/SajuInputForm';
 import { LoadingView } from './components/LoadingView';
 import { ResultView } from './components/ResultView';
+import { ArchiveView } from './components/ArchiveView';
+import { FirebaseProvider, useFirebase } from './contexts/FirebaseContext';
+import { saveSajuReading } from './services/sajuRepository';
 import { trackEvent } from './utils/analytics';
-import type { SajuAnalysisResponse, SajuInput } from './types/saju';
+import { auth } from './firebase';
+import type {
+  SajuAnalysisResponse,
+  SajuInput,
+  SavedSajuReading,
+} from './types/saju';
 
 const DEFAULT_INPUT: SajuInput = {
   nickname: '',
@@ -21,10 +29,14 @@ const DEFAULT_INPUT: SajuInput = {
   timezone: 'Asia/Seoul',
 };
 
-export default function App() {
+function SajuAppShell() {
+  const { user, readings } = useFirebase();
   const [page, setPage] = useState<AppPage>('hero');
   const [formInput, setFormInput] = useState<SajuInput>(DEFAULT_INPUT);
   const [analysisResult, setAnalysisResult] = useState<SajuAnalysisResponse | null>(null);
+  const [activeReadingId, setActiveReadingId] = useState<string | null>(null);
+  const [savePending, setSavePending] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const inFlightRef = useRef(false);
 
@@ -36,15 +48,26 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const activeSavedReading =
+    activeReadingId
+      ? readings.find((r) => r.id === activeReadingId) ?? null
+      : null;
+
   const handleStartSaju = () => {
     trackEvent('hero_cta_click');
     setAnalysisError(null);
+    setSaveError(null);
     setPage('input');
     scrollToTop();
   };
 
   const handleNavigateHome = () => {
     setPage('hero');
+    scrollToTop();
+  };
+
+  const handleOpenArchive = () => {
+    setPage('archive');
     scrollToTop();
   };
 
@@ -61,11 +84,33 @@ export default function App() {
     }
   };
 
-  const runAnalysis = async (inputPayload: SajuInput) => {
+  const persistAnalysis = async (payload: SajuAnalysisResponse) => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+    setSavePending(true);
+    setSaveError(null);
+    try {
+      const saved = await saveSajuReading(currentUser, payload);
+      setActiveReadingId(saved.id);
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      setSaveError(
+        raw.includes('Quota exceeded')
+          ? '일일 데이터베이스 무료 사용량 한도에 도달해 저장하지 못했습니다.'
+          : '사주 기록을 보관함에 저장하지 못했습니다. 상단의 저장 버튼을 다시 눌러주세요.'
+      );
+    } finally {
+      setSavePending(false);
+    }
+  };
+
+  const runAnalysis = async (inputPayload: SajuInput, shouldSave: boolean) => {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     setFormInput(inputPayload);
     setAnalysisError(null);
+    setSaveError(null);
+    setActiveReadingId(null);
     setPage('loading');
     scrollToTop();
 
@@ -86,12 +131,17 @@ export default function App() {
         );
       }
 
+      const fullResult = data as SajuAnalysisResponse;
       trackEvent('saju_calculation_success');
       trackEvent('gemini_request_success');
-      setAnalysisResult(data as SajuAnalysisResponse);
+      setAnalysisResult(fullResult);
       setPage('result');
       trackEvent('result_view');
       scrollToTop();
+
+      if (shouldSave && auth.currentUser) {
+        void persistAnalysis(fullResult);
+      }
     } catch (err) {
       const message =
         err instanceof Error
@@ -103,19 +153,31 @@ export default function App() {
     }
   };
 
-  const handleSubmitForm = (inputPayload: SajuInput) => {
+  const [lastShouldSave, setLastShouldSave] = useState<boolean>(true);
+
+  const handleSubmitForm = (inputPayload: SajuInput, shouldSave: boolean) => {
     trackEvent('form_submit');
-    void runAnalysis(inputPayload);
+    setLastShouldSave(shouldSave);
+    void runAnalysis(inputPayload, shouldSave);
   };
 
   const handleRetry = () => {
     trackEvent('retry_click');
-    void runAnalysis(formInput);
+    void runAnalysis(formInput, lastShouldSave);
   };
 
   const handleRestart = () => {
     setAnalysisError(null);
+    setSaveError(null);
     setPage('input');
+    scrollToTop();
+  };
+
+  const handleOpenSavedReading = (reading: SavedSajuReading) => {
+    setAnalysisResult(reading);
+    setActiveReadingId(reading.id);
+    setSaveError(null);
+    setPage('result');
     scrollToTop();
   };
 
@@ -123,8 +185,11 @@ export default function App() {
     <div className="min-h-screen bg-[#11110F] text-[#F3EFE5]">
       <Header
         currentPage={page}
+        savedCount={readings.length}
+        isSignedIn={Boolean(user)}
         onNavigateHome={handleNavigateHome}
         onStartSaju={handleStartSaju}
+        onOpenArchive={handleOpenArchive}
         onJumpSection={handleJumpSection}
       />
 
@@ -156,13 +221,36 @@ export default function App() {
         {page === 'result' && analysisResult && (
           <ResultView
             result={analysisResult}
+            savedReading={activeSavedReading}
+            savePending={savePending}
+            saveError={saveError}
+            onSaveToArchive={async () => {
+              await persistAnalysis(analysisResult);
+            }}
+            onOpenArchive={handleOpenArchive}
             onRestart={handleRestart}
             onShareEvent={(phase) =>
               trackEvent(phase === 'click' ? 'share_click' : 'share_success')
             }
           />
         )}
+
+        {page === 'archive' && (
+          <ArchiveView
+            onBackHome={handleNavigateHome}
+            onStartNew={handleStartSaju}
+            onOpenReading={handleOpenSavedReading}
+          />
+        )}
       </main>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <FirebaseProvider>
+      <SajuAppShell />
+    </FirebaseProvider>
   );
 }

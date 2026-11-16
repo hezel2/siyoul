@@ -1,6 +1,15 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
-import { ArrowLeft, ArrowRight, AlertCircle } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  AlertCircle,
+  Bookmark,
+  LogIn,
+  LogOut,
+  Check,
+} from 'lucide-react';
+import { useFirebase } from '../contexts/FirebaseContext';
 import type { CalendarType, Gender, SajuInput } from '../types/saju';
 
 interface SajuInputFormProps {
@@ -8,7 +17,7 @@ interface SajuInputFormProps {
   isSubmitting: boolean;
   onBack: () => void;
   onFormStart: () => void;
-  onSubmit: (input: SajuInput) => void;
+  onSubmit: (input: SajuInput, shouldSave: boolean) => void;
 }
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -30,6 +39,16 @@ export function SajuInputForm({
   onSubmit,
 }: SajuInputFormProps) {
   const shouldReduceMotion = useReducedMotion();
+  const {
+    user,
+    authReady,
+    authBusy,
+    authError,
+    signInWithGoogle,
+    signOutUser,
+    clearAuthError,
+  } = useFirebase();
+
   const [hasStarted, setHasStarted] = useState(false);
 
   const initialParts = useMemo(() => {
@@ -51,7 +70,16 @@ export function SajuInputForm({
   const [minute, setMinute] = useState<number>(initialValue.birthTime.minute);
   const [timeUnknown, setTimeUnknown] = useState<boolean>(initialValue.birthTime.unknown);
   const [gender, setGender] = useState<Gender>(initialValue.gender);
+  const [saveChoice, setSaveChoice] = useState<'guest' | 'save'>(
+    user ? 'save' : 'guest'
+  );
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (authReady && user) {
+      setSaveChoice('save');
+    }
+  }, [authReady, user]);
 
   const markStarted = () => {
     if (!hasStarted) {
@@ -69,18 +97,18 @@ export function SajuInputForm({
     setValidationError(null);
   };
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (isSubmitting) return;
+    if (isSubmitting || authBusy) return;
 
     setValidationError(null);
+    clearAuthError();
 
     if (!year || !month || !day) {
       setValidationError('생년월일을 모두 선택해주세요.');
       return;
     }
 
-    // Check Gregorian validity when solar calendar is selected
     if (calendarType === 'solar') {
       const check = new Date(Date.UTC(year, month - 1, day));
       if (
@@ -92,7 +120,6 @@ export function SajuInputForm({
         return;
       }
 
-      // Check future date against KST today
       const kstTodayStr = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'Asia/Seoul',
         year: 'numeric',
@@ -108,21 +135,36 @@ export function SajuInputForm({
       }
     }
 
+    let shouldSave = saveChoice === 'save';
+
+    if (shouldSave && !user) {
+      const signedInUser = await signInWithGoogle();
+      if (!signedInUser) {
+        return;
+      }
+      shouldSave = true;
+    }
+
     const birthDate = `${year}-${pad2(month)}-${pad2(day)}`;
-    onSubmit({
-      nickname: nickname.trim(),
-      birthDate,
-      calendarType,
-      isLeapMonth: calendarType === 'lunar' ? isLeapMonth : false,
-      birthTime: {
-        hour: timeUnknown ? 12 : hour,
-        minute: timeUnknown ? 0 : minute,
-        unknown: timeUnknown,
+    onSubmit(
+      {
+        nickname: nickname.trim(),
+        birthDate,
+        calendarType,
+        isLeapMonth: calendarType === 'lunar' ? isLeapMonth : false,
+        birthTime: {
+          hour: timeUnknown ? 12 : hour,
+          minute: timeUnknown ? 0 : minute,
+          unknown: timeUnknown,
+        },
+        gender,
+        timezone: 'Asia/Seoul',
       },
-      gender,
-      timezone: 'Asia/Seoul',
-    });
+      shouldSave
+    );
   };
+
+  const combinedError = validationError || authError;
 
   return (
     <section className="mx-auto max-w-[780px] px-4 py-12 sm:px-6 lg:py-16">
@@ -154,7 +196,7 @@ export function SajuInputForm({
         initial={shouldReduceMotion ? false : { opacity: 0, y: 18 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.55, delay: 0.08, ease: [0.16, 1, 0.3, 1] }}
-        onSubmit={handleSubmit}
+        onSubmit={(e) => void handleSubmit(e)}
         noValidate
         className="hanji-texture mt-8 rounded-sm border border-[#4B4030]/75 bg-[#1B1A17] p-6 sm:p-10"
       >
@@ -458,29 +500,149 @@ export function SajuInputForm({
             </p>
           </div>
 
-          {/* Validation Error Banner */}
-          {validationError && (
+          {/* 6. Save & Login Choice */}
+          <div className="border-t border-[#4B4030]/55 pt-7">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-sm font-medium text-[#F3EFE5]">
+                결과 저장 및 로그인 선택
+              </span>
+
+              {authReady && user && (
+                <div className="flex items-center gap-2.5 text-xs">
+                  <span className="inline-flex items-center gap-1 text-[#E2CA91]">
+                    <Check className="h-3.5 w-3.5" />
+                    <span>{user.displayName || '사용자'}님 로그인됨</span>
+                  </span>
+                  <span aria-hidden="true" className="text-[#4B4030]">·</span>
+                  <button
+                    type="button"
+                    disabled={authBusy}
+                    onClick={() => {
+                      void signOutUser().then(() => setSaveChoice('guest'));
+                    }}
+                    className="inline-flex items-center gap-1 text-[#A9A396] underline-offset-4 hover:text-[#F3EFE5] hover:underline cursor-pointer"
+                  >
+                    <LogOut className="h-3 w-3" />
+                    <span>로그아웃</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label
+                className={`flex flex-col justify-between rounded-sm border p-4 transition-colors cursor-pointer ${
+                  saveChoice === 'save'
+                    ? 'border-[#C6A76A] bg-[#24211C]'
+                    : 'border-[#4B4030]/80 bg-[#11110F] hover:border-[#C6A76A]/50'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="savePreference"
+                  value="save"
+                  checked={saveChoice === 'save'}
+                  onChange={() => {
+                    markStarted();
+                    clearAuthError();
+                    setSaveChoice('save');
+                  }}
+                  className="sr-only"
+                />
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-medium text-[#F3EFE5]">
+                    <Bookmark className="h-4 w-4 text-[#C6A76A] shrink-0" />
+                    <span>로그인하고 내 보관함에 저장하기</span>
+                  </div>
+                  <p className="mt-1.5 text-xs leading-relaxed text-[#A9A396]">
+                    {user
+                      ? '분석 완료 후 내 보관함에 자동 저장되어 언제든 다시 열어보고 메모할 수 있습니다.'
+                      : 'Google 계정으로 로그인하여 이번 사주 리포트를 개인 보관함에 저장합니다.'}
+                  </p>
+                </div>
+              </label>
+
+              <label
+                className={`flex flex-col justify-between rounded-sm border p-4 transition-colors cursor-pointer ${
+                  saveChoice === 'guest'
+                    ? 'border-[#C6A76A] bg-[#24211C]'
+                    : 'border-[#4B4030]/80 bg-[#11110F] hover:border-[#C6A76A]/50'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="savePreference"
+                  value="guest"
+                  checked={saveChoice === 'guest'}
+                  onChange={() => {
+                    markStarted();
+                    clearAuthError();
+                    setSaveChoice('guest');
+                  }}
+                  className="sr-only"
+                />
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-medium text-[#F3EFE5]">
+                    <span>저장하지 않고 바로 보기</span>
+                  </div>
+                  <p className="mt-1.5 text-xs leading-relaxed text-[#A9A396]">
+                    {user
+                      ? '로그인 상태이지만 이번 결과는 보관함에 남기지 않고 현재 화면에서만 확인합니다.'
+                      : '별도 로그인이나 계정 저장 없이 이번 세션에서만 즉시 결과를 확인합니다.'}
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            {saveChoice === 'save' && authReady && !user && (
+              <div className="mt-3 flex flex-col gap-3 rounded-sm border border-[#4B4030]/70 bg-[#11110F]/80 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs leading-relaxed text-[#A9A396]">
+                  미리 Google 계정을 연결하거나, 아래 분석 시작 버튼을 누를 때 함께 로그인할 수 있습니다.
+                </p>
+                <button
+                  type="button"
+                  disabled={authBusy}
+                  onClick={() => void signInWithGoogle()}
+                  className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-sm border border-[#C6A76A]/80 bg-[#1B1A17] px-4 py-2 text-xs font-medium text-[#E2CA91] transition-colors hover:bg-[#24211C] disabled:opacity-50 whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <LogIn className="h-3.5 w-3.5" />
+                  <span>{authBusy ? '로그인 중...' : 'Google 계정 연결'}</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Validation or Auth Error Banner */}
+          {combinedError && (
             <div
               role="alert"
               className="flex items-start gap-2.5 rounded-sm border border-[#B86B52]/70 bg-[#B86B52]/10 p-4 text-sm text-[#F3EFE5]"
             >
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#B86B52]" />
-              <span>{validationError}</span>
+              <span>{combinedError}</span>
             </div>
           )}
 
           {/* Privacy Notice & Submit */}
           <div className="border-t border-[#4B4030]/55 pt-6">
             <p className="text-xs leading-relaxed text-[#A9A396]">
-              입력하신 정보는 대한민국 표준시(KST) 기준 만세력 계산과 AI 사주 리포트 작성에만 즉시 사용되며, 서버나 데이터베이스에 저장되지 않습니다.
+              {saveChoice === 'save'
+                ? '계산된 사주 결과는 본인만 열람 가능한 개인 보관함에 안전하게 저장되며, 원본 생년월일·시각은 AI 서버 로그에 남지 않습니다.'
+                : '저장하지 않음을 선택하시면 입력 정보는 만세력 계산과 AI 리포트 작성에만 즉시 사용되며 저장되지 않습니다.'}
             </p>
 
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || authBusy}
               className="mt-6 flex min-h-[52px] w-full items-center justify-center gap-2.5 rounded-sm border border-[#C6A76A] bg-[#C6A76A] px-8 py-3.5 text-base font-semibold text-[#11110F] transition-all duration-200 hover:bg-[#E2CA91] hover:shadow-[0_0_24px_rgba(198,167,106,0.3)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E2CA91] disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
             >
-              <span>내 사주 분석하기</span>
+              <span>
+                {authBusy
+                  ? 'Google 로그인 진행 중...'
+                  : saveChoice === 'save' && !user
+                    ? 'Google 로그인 후 사주 분석하기'
+                    : '내 사주 분석하기'}
+              </span>
               <ArrowRight className="h-4 w-4" />
             </button>
           </div>

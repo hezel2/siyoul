@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import type {
   GeminiSajuReport,
   Gender,
@@ -37,12 +37,12 @@ const SYSTEM_INSTRUCTION = `당신은 전통 동양 명리학과 사주팔자에
 
 [해석 가이드]
 
-- 종합 풀이: 사주 전체의 구조와 핵심적인 특징 (3~4문단 수준의 충실한 서술)
-- 성격운: 타고난 기질, 강점, 사고방식, 대인관계 스타일, 보완할 점
-- 재물운: 재물을 대하는 성향, 소비 및 저축 성향, 기회 활용 방식, 유의할 점
-- 연애운: 관계 형성 방식, 애정 표현, 잘 맞는 관계 특성, 관계에서의 조언
-- 건강운: 오행의 균형을 참고한 일반적인 생활 습관 및 휴식, 자기 관리 조언
-- 올해의 운: 입력된 targetYear를 기준으로 한 해의 전체 흐름, 일/커리어, 재물, 관계, 조언
+- 종합 풀이: 사주 전체의 구조와 핵심적인 특징 (2~3문단, 350~500자 내외)
+- 성격운: 타고난 기질, 강점, 사고방식, 대인관계 스타일, 보완할 점 (2문단, 280~400자 내외)
+- 재물운: 재물을 대하는 성향, 소비 및 저축 성향, 기회 활용 방식, 유의할 점 (2문단, 250~380자 내외)
+- 연애운: 관계 형성 방식, 애정 표현, 잘 맞는 관계 특성, 관계에서의 조언 (2문단, 250~380자 내외)
+- 건강운: 오행의 균형을 참고한 일반적인 생활 습관 및 휴식, 자기 관리 조언 (2문단, 220~350자 내외)
+- 올해의 운: 입력된 targetYear를 기준으로 한 해의 전체 흐름, 일/커리어, 재물, 관계, 조언 (2~3문단, 300~450자 내외)
 
 [건강 관련 제한]
 
@@ -206,16 +206,23 @@ ${JSON.stringify(geminiPayload, null, 2)}`;
   let lastError: unknown = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('AI 사주 해석 요청 시간이 초과되었습니다.')), 45000)
-      );
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error('AI 사주 해석 요청 시간이 초과되었습니다.')),
+          60000
+        );
+      });
 
       const apiPromise = ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
+        model: 'gemini-3.1-flash-lite',
         contents: userPrompt,
         config: {
           systemInstruction: SYSTEM_INSTRUCTION,
+          thinkingConfig: {
+            thinkingLevel: ThinkingLevel.LOW,
+          },
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -284,6 +291,7 @@ ${JSON.stringify(geminiPayload, null, 2)}`;
       });
 
       const response = await Promise.race([apiPromise, timeoutPromise]);
+      clearTimeout(timeoutId);
       const rawText = (response.text ?? '').trim();
       if (!rawText) {
         throw new Error('AI 응답이 비어 있습니다.');
@@ -292,10 +300,14 @@ ${JSON.stringify(geminiPayload, null, 2)}`;
       const parsed = JSON.parse(rawText) as unknown;
       return validateReportStructure(parsed, targetYear);
     } catch (err) {
+      clearTimeout(timeoutId);
       lastError = err;
-      if (attempt < maxAttempts) {
-        await new Promise((r) => setTimeout(r, 800 * attempt));
+      const isTimeout =
+        err instanceof Error && err.message.includes('시간이 초과');
+      if (isTimeout || attempt >= maxAttempts) {
+        break;
       }
+      await new Promise((r) => setTimeout(r, 800 * attempt));
     }
   }
 

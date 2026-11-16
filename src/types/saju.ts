@@ -98,3 +98,12 @@ export interface SajuAnalysisResponse {
   report: GeminiSajuReport;
   targetYear: number;
 }
+
+export interface SavedSajuReading extends SajuAnalysisResponse {
+  id: string;
+  ownerId: string;
+  memo: string;
+  isPinned: boolean;
+  createdAtMs: number;
+  updatedAtMs: number;
+}

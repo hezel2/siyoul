@@ -1,15 +1,33 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
-import { Share2, Copy, Download, RotateCcw, Check, AlertCircle } from 'lucide-react';
+import {
+  Share2,
+  Copy,
+  Download,
+  RotateCcw,
+  Check,
+  AlertCircle,
+  Bookmark,
+  LogIn,
+  Archive,
+} from 'lucide-react';
 import type {
   FiveElementKey,
   PillarDetail,
   SajuAnalysisResponse,
+  SavedSajuReading,
 } from '../types/saju';
 import { downloadSajuCardImage } from '../utils/shareCard';
+import { useFirebase } from '../contexts/FirebaseContext';
+import { updateReadingAnnotation } from '../services/sajuRepository';
 
 interface ResultViewProps {
   result: SajuAnalysisResponse;
+  savedReading: SavedSajuReading | null;
+  savePending: boolean;
+  saveError: string | null;
+  onSaveToArchive: () => Promise<void>;
+  onOpenArchive: () => void;
   onRestart: () => void;
   onShareEvent: (phase: 'click' | 'success') => void;
 }
@@ -165,15 +183,31 @@ function PillarCard({
 
 export function ResultView({
   result,
+  savedReading,
+  savePending,
+  saveError,
+  onSaveToArchive,
+  onOpenArchive,
   onRestart,
   onShareEvent,
 }: ResultViewProps) {
   const shouldReduceMotion = useReducedMotion();
+  const { user, authBusy, signInWithGoogle } = useFirebase();
+
   const [shareFeedback, setShareFeedback] = useState<{
     type: 'success' | 'error';
     message: string;
   } | null>(null);
   const [isDownloadingCard, setIsDownloadingCard] = useState(false);
+
+  const [memoDraft, setMemoDraft] = useState(savedReading?.memo ?? '');
+  const [memoBusy, setMemoBusy] = useState(false);
+  const [memoStatus, setMemoStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMemoDraft(savedReading?.memo ?? '');
+    setMemoStatus(null);
+  }, [savedReading?.id, savedReading?.memo]);
 
   const { calculation, report, nickname, displayMeta, targetYear } = result;
   const totalCount = calculation.totalElementsCount || 8;
@@ -202,7 +236,6 @@ export function ResultView({
     return `${strongest}의 기운이 중심을 이루고 있어, 해당 기운의 성향이 삶의 태도와 선택에서 선명하게 드러납니다.`;
   }, [calculation.fiveElements]);
 
-  // Pentagon SVG radar coordinates
   const pentagonPoints = useMemo(() => {
     const cx = 140;
     const cy = 140;
@@ -240,7 +273,6 @@ export function ResultView({
     return { vertices, dataPolygon, outerPolygon, midPolygon };
   }, [calculation.fiveElements]);
 
-  // Privacy-safe share payload: NO birthDate or birthTime included
   const buildPrivacySafeShareText = () => {
     const p = calculation.pillars;
     const pillarsSummary = [
@@ -281,7 +313,6 @@ export function ResultView({
       }
     }
 
-    // Fallback to clipboard copy
     await handleCopyLink();
   };
 
@@ -317,6 +348,42 @@ export function ResultView({
     }
   };
 
+  const handleSaveMemo = async () => {
+    if (!user || !savedReading || memoBusy) return;
+    setMemoBusy(true);
+    setMemoStatus(null);
+    try {
+      await updateReadingAnnotation(user, savedReading.id, { memo: memoDraft });
+      setMemoStatus('메모가 보관함에 저장되었습니다.');
+    } catch {
+      setMemoStatus('메모를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.');
+    } finally {
+      setMemoBusy(false);
+    }
+  };
+
+  const handleTogglePin = async () => {
+    if (!user || !savedReading || memoBusy) return;
+    setMemoBusy(true);
+    setMemoStatus(null);
+    try {
+      await updateReadingAnnotation(user, savedReading.id, {
+        isPinned: !savedReading.isPinned,
+      });
+    } catch {
+      setMemoStatus('고정 상태를 변경하지 못했습니다.');
+    } finally {
+      setMemoBusy(false);
+    }
+  };
+
+  const handleGuestSignInAndSave = async () => {
+    const signedIn = await signInWithGoogle();
+    if (signedIn) {
+      await onSaveToArchive();
+    }
+  };
+
   const sectionsList = [
     {
       id: 'sec-overall',
@@ -339,7 +406,8 @@ export function ResultView({
       kicker: '재물운',
       heading: '돈과 기회가 흐르는 방향',
       content: report.sections.wealth.content,
-      footnote: '재물운은 금전적 태도와 기회 활용에 대한 참고 해석이며 특정 투자 결과를 예측하지 않습니다.',
+      footnote:
+        '재물운은 금전적 태도와 기회 활용에 대한 참고 해석이며 특정 투자 결과를 예측하지 않습니다.',
     },
     {
       id: 'sec-love',
@@ -354,7 +422,8 @@ export function ResultView({
       kicker: '건강운',
       heading: '몸과 마음의 균형',
       content: report.sections.health.content,
-      footnote: '건강운은 오행 균형에 기반한 생활 습관 및 자기 성찰용 콘텐츠이며 의학적 진단이나 치료를 대체하지 않습니다.',
+      footnote:
+        '건강운은 오행 균형에 기반한 생활 습관 및 자기 성찰용 콘텐츠이며 의학적 진단이나 치료를 대체하지 않습니다.',
     },
     {
       id: 'sec-yearly',
@@ -394,6 +463,67 @@ export function ResultView({
           <span aria-hidden="true" className="text-[#4B4030]">·</span>
           <span>절기 {calculation.calculationMetadata.solarTermContext}</span>
         </div>
+
+        {/* Archive Persistence Status Bar */}
+        <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+          {!user ? (
+            <button
+              type="button"
+              disabled={authBusy || savePending}
+              onClick={() => void handleGuestSignInAndSave()}
+              className="inline-flex min-h-[42px] items-center gap-2 rounded-sm border border-[#C6A76A]/75 bg-[#1B1A17] px-5 py-2 text-xs sm:text-sm font-medium text-[#E2CA91] transition-colors hover:border-[#C6A76A] hover:bg-[#24211C] disabled:opacity-50 whitespace-nowrap cursor-pointer"
+            >
+              <LogIn className="h-4 w-4" />
+              <span>
+                {authBusy || savePending
+                  ? '계정 연결 및 저장 중...'
+                  : 'Google 로그인 후 보관함에 저장하기'}
+              </span>
+            </button>
+          ) : savedReading ? (
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <span className="inline-flex items-center gap-1.5 text-xs sm:text-sm text-[#E2CA91]">
+                <Check className="h-4 w-4" />
+                <span>내 보관함에 저장됨</span>
+              </span>
+              <span aria-hidden="true" className="text-[#4B4030]">·</span>
+              <button
+                type="button"
+                disabled={memoBusy}
+                onClick={() => void handleTogglePin()}
+                className="inline-flex min-h-[36px] items-center gap-1.5 text-xs sm:text-sm text-[#A9A396] underline-offset-4 transition-colors hover:text-[#F3EFE5] hover:underline whitespace-nowrap cursor-pointer"
+              >
+                <Bookmark className="h-3.5 w-3.5" />
+                <span>{savedReading.isPinned ? '고정 해제' : '상단 고정'}</span>
+              </button>
+              <span aria-hidden="true" className="text-[#4B4030]">·</span>
+              <button
+                type="button"
+                onClick={onOpenArchive}
+                className="inline-flex min-h-[36px] items-center gap-1.5 text-xs sm:text-sm text-[#A9A396] underline-offset-4 transition-colors hover:text-[#F3EFE5] hover:underline whitespace-nowrap cursor-pointer"
+              >
+                <Archive className="h-3.5 w-3.5" />
+                <span>보관함 열기</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              disabled={savePending}
+              onClick={() => void onSaveToArchive()}
+              className="inline-flex min-h-[42px] items-center gap-2 rounded-sm border border-[#C6A76A]/80 bg-[#1B1A17] px-5 py-2 text-xs sm:text-sm font-medium text-[#E2CA91] transition-colors hover:bg-[#24211C] disabled:opacity-50 whitespace-nowrap cursor-pointer"
+            >
+              <Bookmark className="h-4 w-4" />
+              <span>{savePending ? '저장 중...' : '내 보관함에 저장하기'}</span>
+            </button>
+          )}
+        </div>
+
+        {saveError && (
+          <p role="alert" className="mt-3 text-xs sm:text-sm text-[#B86B52]">
+            {saveError}
+          </p>
+        )}
       </motion.header>
 
       {/* B. Four Pillars (사주 8자 카드) */}
@@ -408,9 +538,7 @@ export function ResultView({
               태어난 연도, 월, 일, 시간을 네 개의 기둥으로 표현한 당신만의 사주입니다.
             </p>
           </div>
-          <p className="text-xs text-[#A9A396]">
-            KST 표준시 · 자정 일주 경계 기준
-          </p>
+          <p className="text-xs text-[#A9A396]">KST 표준시 · 자정 일주 경계 기준</p>
         </div>
 
         <div className="mt-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -461,7 +589,6 @@ export function ResultView({
         </div>
 
         <div className="mt-8 grid grid-cols-1 items-center gap-10 rounded-sm border border-[#4B4030]/70 bg-[#1B1A17] p-6 sm:p-8 lg:grid-cols-12">
-          {/* Pentagon Harmony Diagram */}
           <div className="lg:col-span-5 flex flex-col items-center justify-center">
             <svg
               viewBox="0 0 280 280"
@@ -511,12 +638,7 @@ export function ResultView({
                 const count = calculation.fiveElements[v.key];
                 return (
                   <g key={v.key}>
-                    <circle
-                      cx={v.dataX}
-                      cy={v.dataY}
-                      r="3.5"
-                      fill={info.color}
-                    />
+                    <circle cx={v.dataX} cy={v.dataY} r="3.5" fill={info.color} />
                     <text
                       x={v.labelX}
                       y={v.labelY}
@@ -534,7 +656,6 @@ export function ResultView({
             </svg>
           </div>
 
-          {/* Horizontal Bar Breakdown */}
           <div className="lg:col-span-7 space-y-5">
             {ELEMENT_ORDER.map((key, idx) => {
               const info = ELEMENT_INFO[key];
@@ -595,7 +716,10 @@ export function ResultView({
             </h2>
           </div>
 
-          <nav aria-label="리포트 목차" className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-[#A9A396]">
+          <nav
+            aria-label="리포트 목차"
+            className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-[#A9A396]"
+          >
             {sectionsList.map((sec) => (
               <a
                 key={sec.id}
@@ -608,7 +732,6 @@ export function ResultView({
           </nav>
         </div>
 
-        {/* Summary Lead */}
         <div className="mt-8 rounded-sm border border-[#4B4030]/60 bg-[#1B1A17] p-6 sm:p-8">
           <p className="text-xs tracking-[0.18em] text-[#C6A76A]">총평 요약</p>
           <p className="font-serif-kr mt-3 text-base sm:text-lg leading-[1.85] text-[#F3EFE5]">
@@ -616,7 +739,6 @@ export function ResultView({
           </p>
         </div>
 
-        {/* D - I: 6 Structured Interpretation Chapters */}
         <div className="divide-y divide-[#4B4030]/45">
           {sectionsList.map((sec, idx) => (
             <motion.section
@@ -663,14 +785,58 @@ export function ResultView({
           ))}
         </div>
 
-        {/* Closing Editorial Pull Quote (No thick left border) */}
         <div className="my-6 border-t border-b border-[#C6A76A]/45 py-10 text-center">
-          <p className="text-xs tracking-[0.2em] text-[#C6A76A]">당신에게 전하는 마지막 조언</p>
+          <p className="text-xs tracking-[0.2em] text-[#C6A76A]">
+            당신에게 전하는 마지막 조언
+          </p>
           <blockquote className="font-serif-kr mx-auto mt-4 max-w-2xl text-lg sm:text-xl leading-[1.85] text-[#E2CA91]">
             “{report.advice}”
           </blockquote>
         </div>
       </section>
+
+      {/* Personal Reflection Memo (Only when saved to Firestore) */}
+      {user && savedReading && (
+        <section className="mt-10 rounded-sm border border-[#4B4030]/70 bg-[#1B1A17] p-6 sm:p-8">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs tracking-[0.2em] text-[#C6A76A]">개인 회고 메모</p>
+              <h2 className="font-serif-kr mt-1.5 text-lg font-semibold text-[#F3EFE5]">
+                이 사주에 남기는 나만의 기록
+              </h2>
+            </div>
+            <span className="tabular-nums text-xs text-[#A9A396]">
+              {memoDraft.length} / 500자
+            </span>
+          </div>
+
+          <textarea
+            rows={3}
+            maxLength={500}
+            value={memoDraft}
+            onChange={(e) => {
+              setMemoDraft(e.target.value);
+              setMemoStatus(null);
+            }}
+            placeholder="오늘의 다짐이나 사주를 읽고 느낀 점을 자유롭게 기록해두세요."
+            className="mt-4 block w-full rounded-sm border border-[#4B4030] bg-[#11110F] p-4 text-sm leading-relaxed text-[#F3EFE5] placeholder:text-[#A9A396]/55 focus:border-[#C6A76A] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#C6A76A]"
+          />
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <p aria-live="polite" className="text-xs text-[#E2CA91]">
+              {memoStatus || ''}
+            </p>
+            <button
+              type="button"
+              disabled={memoBusy}
+              onClick={() => void handleSaveMemo()}
+              className="inline-flex min-h-[42px] items-center gap-2 rounded-sm border border-[#C6A76A] bg-[#C6A76A] px-5 py-2 text-xs sm:text-sm font-semibold text-[#11110F] transition-colors hover:bg-[#E2CA91] disabled:opacity-50 whitespace-nowrap cursor-pointer"
+            >
+              <span>{memoBusy ? '저장 중...' : '메모 저장'}</span>
+            </button>
+          </div>
+        </section>
+      )}
 
       {/* J. Share & Restart Section */}
       <section className="mt-10 rounded-sm border border-[#4B4030]/70 bg-[#1B1A17] p-7 sm:p-10 text-center">
@@ -720,7 +886,6 @@ export function ResultView({
           </button>
         </div>
 
-        {/* Share Status Feedback */}
         <div aria-live="polite" className="mt-5 min-h-[24px]">
           {shareFeedback && (
             <p

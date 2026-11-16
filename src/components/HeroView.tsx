@@ -112,11 +112,11 @@ export function HeroView({ onStart }: HeroViewProps) {
               transition={{ duration: 0.7, delay: 0.36 }}
               className="mt-12 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-[#4B4030]/50 pt-5 text-xs sm:text-sm text-[#A9A396]"
             >
-              <span>회원가입 없이 무료 이용</span>
+              <span>비로그인 즉시 이용 가능</span>
               <span aria-hidden="true" className="text-[#4B4030]">·</span>
               <span>24절기 만세력 계산</span>
               <span aria-hidden="true" className="text-[#4B4030]">·</span>
-              <span>개인정보 서버 무저장</span>
+              <span>로그인 시 개인 보관함 저장</span>
             </motion.div>
           </div>
 
@@ -221,10 +221,10 @@ export function HeroView({ onStart }: HeroViewProps) {
             </h2>
             <div className="mt-6 space-y-4 text-sm leading-relaxed text-[#A9A396]">
               <p>
-                시율은 별도의 회원가입이나 로그인 없이 이용할 수 있으며, 입력하신 생년월일과 태어난 시간은 사주 계산과 리포트 생성을 위해서만 즉시 사용됩니다.
+                시율은 별도의 회원가입 없이 즉시 이용할 수 있으며, Google 계정으로 로그인하면 계산된 사주 리포트를 본인만 열람 가능한 개인 보관함에 안전하게 저장해 언제든 다시 꺼내볼 수 있습니다.
               </p>
               <p>
-                입력된 원본 생년월일 정보는 서버 데이터베이스나 로그에 저장되지 않으며, AI 해석 단계에서도 계산된 사주 8자와 오행 균형 등 최소한의 정보만을 전달합니다.
+                AI 해석 단계에서는 계산된 사주 8자와 오행 균형 등 최소한의 정보만을 전달하며, 저장된 사주 기록은 본인 외 타인이 접근하거나 열람할 수 없도록 엄격히 보호됩니다.
               </p>
               <p>
                 제공되는 재물운 및 건강운 등 모든 해석은 전통 명리학을 바탕으로 한 자기 성찰 및 오락 목적의 참고 콘텐츠이며, 의학적 진단이나 재정적 투자 자문을 대신하지 않습니다.

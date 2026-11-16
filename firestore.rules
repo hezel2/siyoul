@@ -1,0 +1,249 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net: Default-deny all undeclared paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable Hardened Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isVerifiedOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isBoundedString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data is map
+        && data.keys().hasAll(['uid', 'displayName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && isBoundedString(data.displayName, 1, 60)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDisplayMeta(meta) {
+      return meta is map
+        && meta.keys().hasAll(['birthDateLabel', 'calendarLabel', 'timeLabel', 'genderLabel'])
+        && meta.keys().hasOnly(['birthDateLabel', 'calendarLabel', 'timeLabel', 'genderLabel'])
+        && isBoundedString(meta.birthDateLabel, 1, 80)
+        && isBoundedString(meta.calendarLabel, 1, 20)
+        && isBoundedString(meta.timeLabel, 1, 40)
+        && isBoundedString(meta.genderLabel, 1, 20);
+    }
+
+    function isValidFiveElements(fe) {
+      return fe is map
+        && fe.keys().hasAll(['wood', 'fire', 'earth', 'metal', 'water'])
+        && fe.keys().hasOnly(['wood', 'fire', 'earth', 'metal', 'water'])
+        && fe.wood is int && fe.wood >= 0 && fe.wood <= 8
+        && fe.fire is int && fe.fire >= 0 && fe.fire <= 8
+        && fe.earth is int && fe.earth >= 0 && fe.earth <= 8
+        && fe.metal is int && fe.metal >= 0 && fe.metal <= 8
+        && fe.water is int && fe.water >= 0 && fe.water <= 8;
+    }
+
+    function isValidPillar(p) {
+      return p is map
+        && p.keys().hasAll([
+          'stemHanja', 'stemHangul', 'stemElement', 'stemYinYang',
+          'branchHanja', 'branchHangul', 'branchElement', 'branchYinYang',
+          'animal', 'tenGodStem', 'tenGodBranch'
+        ])
+        && p.keys().hasOnly([
+          'stemHanja', 'stemHangul', 'stemElement', 'stemYinYang',
+          'branchHanja', 'branchHangul', 'branchElement', 'branchYinYang',
+          'animal', 'tenGodStem', 'tenGodBranch'
+        ])
+        && isBoundedString(p.stemHanja, 1, 4)
+        && isBoundedString(p.stemHangul, 1, 4)
+        && p.stemElement in ['wood', 'fire', 'earth', 'metal', 'water']
+        && p.stemYinYang in ['yang', 'yin']
+        && isBoundedString(p.branchHanja, 1, 4)
+        && isBoundedString(p.branchHangul, 1, 4)
+        && p.branchElement in ['wood', 'fire', 'earth', 'metal', 'water']
+        && p.branchYinYang in ['yang', 'yin']
+        && isBoundedString(p.animal, 1, 12)
+        && isBoundedString(p.tenGodStem, 1, 16)
+        && isBoundedString(p.tenGodBranch, 1, 16);
+    }
+
+    function isValidCalculation(calc) {
+      return calc is map
+        && calc.keys().hasAll([
+          'pillars', 'fiveElements', 'totalElementsCount', 'dayMaster', 'calculationMetadata'
+        ])
+        && calc.keys().hasOnly([
+          'pillars', 'fiveElements', 'totalElementsCount', 'dayMaster', 'calculationMetadata'
+        ])
+        && calc.pillars is map
+        && calc.pillars.keys().hasAll(['year', 'month', 'day', 'hour'])
+        && calc.pillars.keys().hasOnly(['year', 'month', 'day', 'hour'])
+        && isValidPillar(calc.pillars.year)
+        && isValidPillar(calc.pillars.month)
+        && isValidPillar(calc.pillars.day)
+        && (calc.pillars.hour == null || isValidPillar(calc.pillars.hour))
+        && isValidFiveElements(calc.fiveElements)
+        && calc.totalElementsCount is int
+        && (calc.totalElementsCount == 6 || calc.totalElementsCount == 8)
+        && calc.dayMaster is map
+        && calc.dayMaster.keys().hasAll(['stemHanja', 'stemHangul', 'element', 'yinYang', 'label'])
+        && calc.dayMaster.keys().hasOnly(['stemHanja', 'stemHangul', 'element', 'yinYang', 'label'])
+        && isBoundedString(calc.dayMaster.stemHanja, 1, 4)
+        && isBoundedString(calc.dayMaster.stemHangul, 1, 4)
+        && calc.dayMaster.element in ['wood', 'fire', 'earth', 'metal', 'water']
+        && calc.dayMaster.yinYang in ['yang', 'yin']
+        && isBoundedString(calc.dayMaster.label, 1, 40)
+        && calc.calculationMetadata is map
+        && calc.calculationMetadata.keys().hasAll([
+          'timezone', 'birthTimeUnknown', 'calculationMethod', 'dayBoundaryPolicy', 'solarTermContext'
+        ])
+        && calc.calculationMetadata.keys().hasOnly([
+          'timezone', 'birthTimeUnknown', 'calculationMethod', 'dayBoundaryPolicy', 'solarTermContext'
+        ])
+        && calc.calculationMetadata.timezone == 'Asia/Seoul'
+        && calc.calculationMetadata.birthTimeUnknown is bool
+        && isBoundedString(calc.calculationMetadata.calculationMethod, 1, 64)
+        && isBoundedString(calc.calculationMetadata.dayBoundaryPolicy, 1, 64)
+        && isBoundedString(calc.calculationMetadata.solarTermContext, 1, 40);
+    }
+
+    function isValidReportSection(sec) {
+      return sec is map
+        && sec.keys().hasAll(['title', 'content'])
+        && sec.keys().hasOnly(['title', 'content'])
+        && isBoundedString(sec.title, 1, 120)
+        && isBoundedString(sec.content, 1, 6000);
+    }
+
+    function isValidReport(rep) {
+      return rep is map
+        && rep.keys().hasAll(['title', 'summary', 'sections', 'advice'])
+        && rep.keys().hasOnly(['title', 'summary', 'sections', 'advice'])
+        && isBoundedString(rep.title, 1, 120)
+        && isBoundedString(rep.summary, 1, 2000)
+        && rep.sections is map
+        && rep.sections.keys().hasAll(['overall', 'personality', 'wealth', 'love', 'health', 'yearly'])
+        && rep.sections.keys().hasOnly(['overall', 'personality', 'wealth', 'love', 'health', 'yearly'])
+        && isValidReportSection(rep.sections.overall)
+        && isValidReportSection(rep.sections.personality)
+        && isValidReportSection(rep.sections.wealth)
+        && isValidReportSection(rep.sections.love)
+        && isValidReportSection(rep.sections.health)
+        && isValidReportSection(rep.sections.yearly)
+        && isBoundedString(rep.advice, 1, 1000);
+    }
+
+    function isValidSajuReading(data, userId, readingId) {
+      return data is map
+        && data.keys().hasAll([
+          'id', 'ownerId', 'nickname', 'targetYear', 'displayMeta',
+          'calculation', 'report', 'memo', 'isPinned', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerId', 'nickname', 'targetYear', 'displayMeta',
+          'calculation', 'report', 'memo', 'isPinned', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == readingId
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && data.ownerId == request.auth.uid
+        && isBoundedString(data.nickname, 1, 24)
+        && data.targetYear is int && data.targetYear >= 1900 && data.targetYear <= 2100
+        && isValidDisplayMeta(data.displayMeta)
+        && isValidCalculation(data.calculation)
+        && isValidReport(data.report)
+        && isBoundedString(data.memo, 0, 500)
+        && data.isPinned is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow get: if isVerifiedOwner(userId)
+        && isValidId(userId)
+        && (resource == null || existing().uid == request.auth.uid);
+      allow list: if false;
+      allow create: if isVerifiedOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt']);
+      allow delete: if false;
+
+      // Saved Saju Readings Subcollection
+      match /readings/{readingId} {
+        allow get: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(readingId)
+          && (resource == null || existing().ownerId == request.auth.uid)
+          && exists(/databases/$(database)/documents/users/$(userId));
+
+        allow list: if isVerifiedOwner(userId)
+          && existing().ownerId == request.auth.uid;
+
+        allow create: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(readingId)
+          && isValidSajuReading(incoming(), userId, readingId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId));
+
+        allow update: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(readingId)
+          && isValidSajuReading(incoming(), userId, readingId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['memo', 'updatedAt'])
+            || incoming().diff(existing()).affectedKeys().hasOnly(['isPinned', 'updatedAt'])
+            || incoming().diff(existing()).affectedKeys().hasOnly(['memo', 'isPinned', 'updatedAt'])
+          );
+
+        allow delete: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(readingId)
+          && existing().ownerId == request.auth.uid;
+      }
+    }
+  }
+}
