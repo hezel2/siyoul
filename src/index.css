@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-ink: #11110F;
+    --bg-charcoal: #1B1A17;
+    --bg-card: #24211C;
+    --accent-gold: #C6A76A;
+    --accent-gold-light: #E2CA91;
+    --text-hanji: #F3EFE5;
+    --text-warm-gray: #A9A396;
+    --border-dark-gold: #4B4030;
+  }
+
+  html {
+    background-color: #11110F;
+    color: #F3EFE5;
+    font-family: "Pretendard Variable", "Noto Sans KR", -apple-system, BlinkMacSystemFont, sans-serif;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: #11110F;
+    color: #F3EFE5;
+    letter-spacing: 0.01em;
+    line-height: 1.65;
+    overflow-x: hidden;
+  }
+}
+
+.font-serif-kr {
+  font-family: "Noto Serif KR", Georgia, serif;
+}
+
+.font-sans-kr {
+  font-family: "Pretendard Variable", "Noto Sans KR", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+/* Subtle hanji fiber paper grain overlay via pure CSS SVG noise */
+.hanji-texture {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 240 240' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

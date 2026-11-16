@@ -1,0 +1,6 @@
+{
+  "name": "시율(時律) — AI 사주 아카이브",
+  "description": "생년월일과 태어난 시간에 담긴 만세력의 흐름을 계산하고, AI가 당신만의 사주팔자와 오행 리포트를 깊이 있게 풀어내는 개인화 운세 서비스",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
